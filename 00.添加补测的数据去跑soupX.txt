@@ -1,0 +1,378 @@
+
+#添加补测的数据
+library(SoupX)
+library(Seurat)
+set.seed(123) 
+args = commandArgs(T)
+indir <- "/jdfssz3/ST_STOMICS/P20Z10200N0059_tmp/wenhuiying/13.zdwf/00.rawdata"
+#rawmatrix
+#automatrix
+##参数简介
+#toc是分析矩阵，即有过滤的矩阵
+#tod是全矩阵，即没有任何过滤的矩阵
+#rho是污染比例系数，可自行设置，如果不设置则会自动计算
+sample ="B6SJL_F"
+com_library= c("9368-1-230110","9368-2-230110")
+for(library in com_library){
+	print(library)
+	readdata<- paste0(indir,"/automatrix","/",sample,"/",library)
+    print(readdata)
+	toc <- Read10X(paste0(indir,"/automatrix","/",sample,"/",library),gene.column=1)#28022  7614
+	tod <- Read10X(paste0(indir,"/rawmatrix","/",sample,"/",library),gene.column=1)#30720 2352672
+	print(dim(toc))
+        print(dim(tod))
+    tod <- tod[rownames(toc),]#28022 2352672       #取toc里面的所有基因，保证基因名一致
+	##SoupX帮助文档建议提供分析矩阵的聚类亚群分组，因此这里利用分析矩阵做一个简单聚类
+	all <- toc
+	all <- CreateSeuratObject(all)
+	all <- NormalizeData(all, normalization.method = "LogNormalize", scale.factor = 10000)
+	all <- FindVariableFeatures(all, selection.method = "vst", nfeatures = 3000)
+	all.genes <- rownames(all)
+	all <- ScaleData(all, features = all.genes)
+
+	all <- RunPCA(all, features = VariableFeatures(all), npcs = 40, verbose = F)
+	all <- FindNeighbors(all, dims = 1:30)
+	all <- FindClusters(all, resolution = 0.5)
+	all <- RunUMAP(all, dims = 1:30)
+        
+	matx <- all@meta.data
+        print(head(matx))
+	sc = SoupChannel(tod, toc)
+	sc = setClusters(sc, setNames(matx$seurat_clusters, rownames(matx)))
+
+      
+	#自动计算污染比例系数
+	tryCatch(
+	{sc = autoEstCont(sc)}, 
+	error=function(e) {
+		#因为自动计算经常会报错，所以如果报错则设置rho为0.2
+		sc <<- setContaminationFraction(sc, 0.2)       #设置为全局变量
+		print("autoEstCont Error !")})
+	#校正矩阵
+        print(head(sc$fit$dd))
+	out = adjustCounts(sc)
+	#保存矩阵文件
+	dir.create(paste0(indir,"/soupxmatrix","/",sample))
+	saveRDS(out,paste0(indir,"/soupxmatrix","/",sample,"/",sample,"_",library,".rds"))
+	#DropletUtils:::write10xCounts(paste0(indir,"/soupxmatrix","/",sample,"/",library), out,version="3",overwrite = T)
+}
+
+
+
+
+
+
+
+
+
+
+
+
+##去双胞
+Find_doublet <- function(data){
+  sweep.res.list <- paramSweep_v3(data, PCs = 1:10, sct = FALSE)
+  #使用log标准化，sct参数设置为 sct = F（默认 ）,如使用SCT标准化方法，设置为T
+  sweep.stats <- summarizeSweep(sweep.res.list, GT = FALSE)
+  bcmvn <- find.pK(sweep.stats)   #可以看到最佳参数的点
+  DoubletRate = ncol(data)*8*1e-6   #按每增加1000个细胞，双细胞比率增加千分之8来计算
+  nExp_poi <- round(DoubletRate*ncol(data))
+  p <- bcmvn$pK[which.max(bcmvn$BCmetric)] %>% as.character() %>% as.numeric() #提取最佳pk值
+  data <- doubletFinder_v3(data, PCs = 1:10, pN = 0.25, pK = p, nExp = nExp_poi, reuse.pANN = FALSE, sct = FALSE)
+  colnames(data@meta.data)[ncol(data@meta.data)] = "doublet_info"
+  data
+}
+pbmc <- Find_doublet(pbmc)
+pbmc@meta.data
+
+
+
+
+RNA<- Find_doublet(RNA)
+
+
+
+
+
+
+
+
+
+
+#去双胞
+rm(list = ls())
+library(Seurat)
+library(tidyverse)
+library(ggplot2)
+library(patchwork)
+library(dplyr)
+library(cowplot)
+library(future)
+library(DoubletFinder)
+library(stringr)
+library(dplyr)
+set.seed(123)  #设置随机数种子，使结果可重复
+indir="/jdfssz3/ST_STOMICS/P20Z10200N0059_tmp/wenhuiying/13.zdwf/00.rawdata"
+outdir="/jdfssz3/ST_STOMICS/P20Z10200N0059_tmp/wenhuiying/13.zdwf/02.RNAdata"
+projname<-"spinalcord"
+
+
+
+com_sample =c("B6SJL_F")
+com_library= c("9368-1-230110","9368-2-230110")
+
+
+lst <- list()
+i=1
+for(sample in com_sample){
+    for(library in list.files(paste0(indir,"/soupxmatrix","/",sample))){
+    print(sample)	
+    print(library)
+    ProjectName<-gsub(".rds","",library)
+    print(ProjectName)	
+	readdata<- paste0(indir,"/soupxmatrix","/",sample,"/",library)
+    print(readdata)
+	counts <- readRDS(readdata)#自动化跑出来的
+	dim(counts)
+	#lst[[i]] <- CreateSeuratObject(counts = counts, project = ProjectName)#默认不卡值
+	lst[[i]] <- CreateSeuratObject(counts = counts, project = ProjectName,min.cells = 3, min.features = 200)
+	dim(lst[[i]])
+	#给细胞barcode加个前缀，防止合并后barcode重名
+    lst[[i]] <- RenameCells(lst[[i]], add.cell.id = sample) #有两次批次的数据有重复的细胞名
+	lst[[i]] <- RenameCells(lst[[i]], add.cell.id = ProjectName) #有两次批次的数据有重复的细胞名
+    lst[[i]][["percent.mt"]] <- PercentageFeatureSet(lst[[i]],pattern = "^mt-")
+	i=i+1 }}		
+RNA<- merge(x=lst[[1]],y=lst[2:length(lst)])	
+
+
+
+
+#全部数据一起找双胞
+RNA <- NormalizeData(object = RNA, verbose = FALSE)
+RNA <- FindVariableFeatures(object = RNA,selection.method = "vst", nfeatures = 2000, verbose = FALSE)
+RNA <- ScaleData(RNA)
+RNA <- RunPCA(RNA)
+RNA <- RunUMAP(RNA, dims = 1:10)
+RNA <- Find_doublet(RNA)
+
+
+#看看双胞的分布以及细胞双胞和非双胞中基因数和count数
+pdf('doublet_DimPlot112233.pdf',width = 15,height = 10)
+DimPlot(RNA,reduction = "umap", label = T,label.size = 5,group.by = 'doublet_info')
+dev.off()
+
+
+pdf("VlnPlot_before_doublet_info.pdf",width = 10,height = 8)
+VlnPlot(RNA,features = c("nFeature_RNA"),group.by="doublet_info",pt.size=0) + theme.set1 + NoLegend()
+VlnPlot(RNA,features = c("nCount_RNA"),group.by="doublet_info",pt.size=0) + theme.set1 + NoLegend()
+VlnPlot(RNA,features = c("percent.mt"),group.by="doublet_info",pt.size=0) + theme.set1 + NoLegend()
+dev.off()
+
+
+
+
+
+
+
+#标准化聚类,创建好metadata
+ID<-str_split(RNA$orig.ident, "_")
+group<-c()
+sex<-c()#创建一个空的向量
+for (i in 1:length(x = ID)) {
+ group<-c(group,ID[[i]][1])
+ sex<-c(sex,ID[[i]][2])
+ i=i+1
+}
+RNA$group<-group
+RNA$sex<-sex
+RNA$sample<-paste0(RNA$group,"_",RNA$sex)
+
+
+setwd(paste0(outdir,"/rds"))
+saveRDS(RNA,"spinalcord_B6SJL_F_initial.rds")
+
+
+setwd("/jdfssz3/ST_STOMICS/P20Z10200N0059_tmp/wenhuiying/13.zdwf/04.RNAresult/01.DoubletFinder")
+
+setwd("/jdfssz3/ST_STOMICS/P20Z10200N0059_tmp/wenhuiying/13.zdwf/02.RNAdata/B6SJL_F/01.data")
+## 质控QC
+# 将 QC 指标可视化为小提琴图
+# 设置可能用到的主题
+setwd(paste0(outdir,"/plots"))
+theme.set1 = theme(axis.text.x = element_text(size = 10),axis.title.x=element_blank())
+pdf("VlnPlot_before_qc2.pdf",width = 10,height = 8)
+VlnPlot(RNA,features = c("nFeature_RNA"),group.by="orig.ident",pt.size=0) + theme.set1 + NoLegend()
+VlnPlot(RNA,features = c("nCount_RNA"),group.by="orig.ident",pt.size=0) + theme.set1 + NoLegend()
+VlnPlot(RNA,features = c("percent.mt"),group.by="orig.ident",pt.size=0) + theme.set1 + NoLegend()
+VlnPlot(RNA,features = c("nFeature_RNA"),group.by="sample",pt.size=0) + theme.set1 + NoLegend()
+VlnPlot(RNA,features = c("nCount_RNA"),group.by="sample",pt.size=0) + theme.set1 + NoLegend()
+VlnPlot(RNA,features = c("percent.mt"),group.by="sample",pt.size=0) + theme.set1 + NoLegend()
+dev.off()
+pdf("SOD1_before_qc2.pdf",width =16, height = 5)
+VlnPlot(RNA, features = c("Sod1", "SOD1"),group.by="orig.ident",pt.size = 0)
+VlnPlot(RNA, features = c("Sod1", "SOD1"),group.by="sample",pt.size = 0)
+dev.off()
+
+##去双胞
+Find_doublet <- function(data){
+  sweep.res.list <- paramSweep_v3(data, PCs = 1:10, sct = FALSE)
+  #使用log标准化，sct参数设置为 sct = F（默认 ）,如使用SCT标准化方法，设置为T
+  sweep.stats <- summarizeSweep(sweep.res.list, GT = FALSE)
+  bcmvn <- find.pK(sweep.stats)   #可以看到最佳参数的点
+  DoubletRate = ncol(data)*8*1e-6   #按每增加1000个细胞，双细胞比率增加千分之8来计算
+  nExp_poi <- round(DoubletRate*ncol(data))
+  p <- bcmvn$pK[which.max(bcmvn$BCmetric)] %>% as.character() %>% as.numeric() #提取最佳pk值
+  data <- doubletFinder_v3(data, PCs = 1:10, pN = 0.25, pK = p, nExp = nExp_poi, reuse.pANN = FALSE, sct = FALSE)
+  colnames(data@meta.data)[ncol(data@meta.data)] = "doublet_info"
+  data
+}
+
+# 过滤,去双胞
+doublet=list()
+lst_qc=list() 
+lst_double=list()
+for (i in 1:length(x = lst)) {
+  #lst[[i]] <- subset(lst[[i]], subset = nFeature_RNA > 500 & percent.mt < 10)#感觉这里卡的太严格了，对于B6SJL_F来说
+  lst[[i]] <- subset(lst[[i]], subset = nFeature_RNA > 200 & percent.mt < 10)
+  lst_qc[[i]] <- lst[[i]]
+  lst[[i]] <- NormalizeData(object = lst[[i]], verbose = FALSE)
+  lst[[i]] <- FindVariableFeatures(object = lst[[i]],
+                                        selection.method = "vst", nfeatures = 2000, verbose = FALSE)
+  lst[[i]] <- ScaleData(lst[[i]])
+  lst[[i]] <- RunPCA(lst[[i]])
+  lst[[i]] <- RunUMAP(lst[[i]], dims = 1:10)
+  lst[[i]] <- Find_doublet(lst[[i]])#这步之前应该要做完了标准化等才能跑
+  lst_double[[i]] <- lst[[i]]#这是还有双胞的数据
+  doublet[[i]] <- lst[[i]]@meta.data[,c(-2,-3,-4,-5)]
+  lst[[i]] <- subset(lst[[i]],subset=doublet_info=="Singlet")
+}
+
+pdf('doublet_DimPlot111.pdf',width = 15,height = 10)
+DimPlot(lst[[1]] reduction = "umap", label = T,label.size = 5,group.by = 'doublet_info')
+dev.off()
+
+
+
+#保存双胞信息
+doublet_df=do.call(rbind,doublet)
+write.table(doublet_df,file = paste0(outdir,"/","Doublet_info_",projname,".txt"),sep="\t",quote=FALSE)
+
+#查看doublet的分布
+doublet_d <-  merge(x=lst_double[[1]],y=lst_double[2:length(lst_double)])
+doublet_d <- NormalizeData(doublet_d) %>% FindVariableFeatures(nfeatures = 2000) %>% ScaleData()
+doublet_d <- RunPCA(doublet_d, verbose=F)
+doublet_d <- FindNeighbors(doublet_d, reduction = "pca", dims = 1:30)
+doublet_d <- FindClusters(doublet_d, verbose = F,resolution = 0.6)
+doublet_d <- RunUMAP(doublet_d, reduction = "pca", dims = 1:30)
+pdf(paste0(projname,'_doublet_DimPlot.pdf'),width = 15,height = 10)
+DimPlot(doublet_d, reduction = "umap", label = T,label.size = 5,group.by = 'doublet_info')
+dev.off()
+
+#使用merge函数合并成一个seurat对象
+#qc后但未去双胞
+RNA_qc <-  merge(x=lst_qc[[1]],y=lst_qc[2:length(lst_qc)])
+#RNA_qc@meta.data$sample <- substring(RNA_qc@meta.data$orig.ident,1,2)
+ID<-str_split(RNA_qc$orig.ident, "_")
+group<-c()
+sex<-c()#创建一个空的向量
+for (i in 1:length(x = ID)) {
+ group<-c(group,ID[[i]][1])
+ sex<-c(sex,ID[[i]][2])
+ i=i+1
+}
+RNA_qc$group<-group
+RNA_qc$sex<-sex
+RNA_qc$sample<-paste0(RNA_qc$group,"_",RNA_qc$sex)
+
+
+
+
+dim(RNA_qc)
+table(RNA_qc@meta.data$sample)
+table(RNA_qc@meta.data$orig.ident)
+#去双胞后
+RNA <-  merge(x=lst[[1]],y=lst[2:length(lst)])
+#RNA@meta.data$sample <- substring(RNA@meta.data$orig.ident,1,2)
+ID<-str_split(RNA_qc$orig.ident, "_")
+group<-c()
+sex<-c()#创建一个空的向量
+for (i in 1:length(x = ID)) {
+ group<-c(group,ID[[i]][1])
+ sex<-c(sex,ID[[i]][2])
+ i=i+1
+}
+RNA_qc$group<-group
+RNA_qc$sex<-sex
+RNA_qc$sample<-paste0(RNA_qc$group,"_",RNA_qc$sex)
+
+dim(RNA)
+table(RNA@meta.data$sample)
+table(RNA@meta.data$orig.ident)
+
+pdf(paste0(projname,'_VlnPlot_after_qc.pdf'),width = 10,height = 8)
+VlnPlot(RNA,features = c("nFeature_RNA"),pt.size=0) + theme.set1 + NoLegend()
+VlnPlot(RNA,features = c("nCount_RNA"),pt.size=0) + theme.set1 + NoLegend()
+VlnPlot(RNA,features = c("percent.mt"),pt.size=0) + theme.set1 + NoLegend()
+dev.off()
+
+## 查看批次效应
+#执行线性降维,确定pc个数
+RNA <- NormalizeData(RNA) %>% FindVariableFeatures(nfeatures = 2000) %>% ScaleData()
+RNA <- RunPCA(RNA, verbose=F)   #verbose=F表示运行时不显示详细信息
+print(RNA[["pca"]], dims = 1:5, nfeatures = 5)
+pdf(paste0(projname,'_ElbowPlot.pdf'))
+ElbowPlot(RNA,ndims = 50)
+dev.off()
+
+#聚类细胞
+#根据拐点图确认选择10个主成分进行聚类
+RNA <- FindNeighbors(RNA, reduction = "pca", dims = 1:30)
+RNA <- FindClusters(RNA, verbose = F,resolution = 0.6)
+RNA <- RunUMAP(RNA, reduction = "pca", dims = 1:30)
+pdf(paste0(projname,'_before_DimPlot.pdf'),width = 15,height = 10)
+DimPlot(RNA, reduction = "umap", label = T,label.size = 5)
+dev.off()
+#输出seurat对象
+saveRDS(RNA,paste0(outdir,'/rds/',projname,"_chuli.rds"))
+
+
+
+
+
+setwd("/jdfssz3/ST_STOMICS/P20Z10200N0059_tmp/wenhuiying/13.zdwf/02.RNAdata/test")
+
+
+pdf('DimPlot_noharmony_qc.pdf',width = 15,height = 10)
+DimPlot(RNA, reduction = "umap", label = T,label.size = 5,group.by = 'orig.ident')
+DimPlot(RNA, reduction = "umap", label = T,label.size = 5,group.by = 'seurat_clusters')
+DimPlot(RNA, reduction = "umap", label = T,label.size = 5,group.by = 'sample')
+DimPlot(RNA, reduction = "umap", label = T,label.size = 5,group.by = 'batch')
+DimPlot(RNA, reduction = "umap", label = T,label.size = 5,group.by = 'sample_batch')
+DimPlot(RNA, reduction = "umap", label = T,label.size = 5,group.by = 'feature_nunmber')
+dev.off()
+
+Idents(RNA)<-"seurat_clusters"
+pdf('DimPlot_noharmony_split.by.pdf',width = 15,height = 7)
+DimPlot(RNA, reduction = "umap", label = T,label.size = 5,split.by = 'batch')+ggtitle("batch")
+DimPlot(RNA, reduction = "umap", label = T,label.size = 5,split.by = 'feature_nunmber')+ggtitle("nFeature_RNA =500")
+dev.off()
+
+RNA@meta.data$sample_batch<-paste0(RNA@meta.data$batch,"_",RNA@meta.data$batch)
+
+
+#添加batch是哪一次的数据？
+
+Idents(object = RNA) <- "orig.ident"
+RNA$batch<-"1"
+RNA@meta.data[which(RNA@meta.data$orig.ident %in% c("B6SJL_F_9368-1-230110","B6SJL_F_9368-2-230110")),]$batch<-"2"
+table(RNA@meta.data$sample_batch)
+
+
+
+#Idents(object = RNA) <- "orig.ident"
+#RNA <- RenameIdents(RNA, `Ctrl` = "CTRL",`Vehicle-STZ` = "DM")
+#RNA@meta.data$disease<-Idents(RNA)
+
+
+
+
+RNA$feature_nunmber <- ifelse(RNA$nFeature_RNA < 200, 'low_nFeature_RNA', 'hight_nFeature_RNA')

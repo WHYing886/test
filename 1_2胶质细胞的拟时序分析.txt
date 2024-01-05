@@ -1,0 +1,400 @@
+#小胶质细胞的拟时序分析
+.libPaths(c("/ldfssz1/ST_META/share/User/zhujie/.conda/envs/bioenv3.7/lib/R/library","/hwfssz1/ST_META/PN/xiazhongkui/00.bin/R-3.3.3/lib64/R/library","/home/sunwanying/R","/share/app/R/4.0.2"))
+library(presto, lib'/jdfssz1/ST_SUPERCELLS/P18Z10200N0350/Automated/USER/mawen/src/soft/miniconda/envs/R4.1.1/lib/R/library')
+
+/hwfssz5/ST_SUPERCELLS/P20Z10200N0059/wenhuiying/software/miniconda/envs/jupyter/bin/R
+
+
+
+/hwfssz1/ST_SUPERCELLS/Reference/software/miniconda3_py3.9/lib/R/bin/R#进这个R，用下边的包，R版本为4.2.1
+.libPaths(c("/hwfssz1/ST_SUPERCELLS/Reference/software/miniconda3_py3.9/lib/R/library","/hwfssz1/ST_SUPERCELLS/Reference/software/miniconda3_py3.9/envs/R421/lib/R/library","/hwfssz5/ST_SUPERCELLS/P20Z10200N0059/wenhuiying/software/miniconda/envs/jupyter/lib/R/library"))
+#/home/fangqi/bin/R-4.2.1/lib/R/bin/R#泽华本地的R
+.libPaths(c("/home/fangqi/bin/R-4.2.1/lib/R/library"))
+
+
+
+ST<-readRDS(“/hwfssz5/ST_SUPERCELLS/P20Z10200N0059/wenhuiying/01_T242_ST/T242_spatialObj.rds
+“)
+atac<-readRDS("/jdfssz3/ST_STOMICS/P20Z10200N0059_tmp/wenhuiying/10.AD/05.signac_hg38_result/signac_hg38_dim_GeneActivity_addmotif_RunChromVAR.rds")
+proj7<-readRDS("/jdfssz3/ST_STOMICS/P20Z10200N0059_tmp/wenhuiying/09.pancreas1/02.atac/01.data/01.fragments/m9test/proj7.rds")
+proj<-readRDS(“/jdfssz3/ST_STOMICS/P20Z10200N0059_tmp/wenhuiying/09.pancreas1/02.atac/01.data/01.fragments/m9test/proj1.rds”)
+
+
+
+
+setwd("/jdfssz3/ST_STOMICS/P20Z10200N0059_tmp/wenhuiying/09.pancreas1/02.atac/01.data/01.fragments/m9test")
+
+proj7<-readRDS("/jdfssz3/ST_STOMICS/P20Z10200N0059_tmp/wenhuiying/09.pancreas1/02.atac/01.data/01.fragments/m9test/proj7.rds")
+
+BiocManager::install(c('BiocGenerics', 'DelayedArray', 'DelayedMatrixStats',
+                       'limma', 'S4Vectors', 'SingleCellExperiment',
+                       'SummarizedExperiment', 'batchelor', 'Matrix.utils'))
+install.packages("devtools")
+devtools::install_github('cole-trapnell-lab/leidenbase')
+devtools::install_github('cole-trapnell-lab/monocle3')					   
+
+
+install.packages("leidenbase")
+library(leidenbase)
+
+my_version <- R.Version()   #查看R版本
+#加载包
+library(Seurat)
+#library(monocle3)
+#library(monocle)
+library(tidyverse)
+library(patchwork)
+set.seed(123)
+########################################################不用跑#################
+#导入数据，这是没有进行seurat分析的创建对象
+#在这里你需要导入三个数据：细胞的表达矩阵，meta信息，gene_annotation
+
+
+
+
+#跑一下monocle2,monocle3的软件包有问题
+#简书教程
+#周运来：https://www.jianshu.com/p/66c387e1de3d
+#https://www.jianshu.com/p/5d6fd4561bc0
+#https://www.jianshu.com/p/009f4abb63f3
+rm(list=ls())
+library(monocle)
+library(Seurat)
+library(tidyverse)
+library(patchwork)
+set.seed(123)
+
+Microglia<-readRDS("/jdfssz3/ST_STOMICS/P20Z10200N0059_tmp/wenhuiying/13.zdwf/02.RNAdata_B6SJL_F/03.Cho_and_mic/01.Microglia_sub_cluster/Microglia_sub_cluster.rds")
+setwd("/jdfssz3/ST_STOMICS/P20Z10200N0059_tmp/wenhuiying/13.zdwf/02.RNAdata_B6SJL_F/03.Cho_and_mic/03.Microglia_monocle2")
+
+
+pbmc<-Microglia
+#Extract data, phenotype data, and feature data from the SeuratObject
+#去除所有小胶质细胞中都没有表达的基因
+counts<-pbmc@assays$RNA@counts[which(rowSums(pbmc@assays$RNA@counts)!=0),]
+dim(counts)
+counts<-pbmc@assays$RNA@counts[which(rowSums(pbmc@assays$RNA@counts)>5),]
+dim(counts)
+
+counts1<-round(counts, digits = 0)
+data <- as(as.matrix(counts1), 'sparseMatrix')
+pd <- new('AnnotatedDataFrame', data = pbmc@meta.data)
+fData <- data.frame(gene_short_name = row.names(data), row.names = row.names(data))
+fd <- new('AnnotatedDataFrame', data = fData)
+
+# 重新创建monocle对象
+monocle_cds  <- newCellDataSet(as(as.matrix(data),"sparseMatrix"), 
+      phenoData = pd, 
+      featureData = fd,
+      lowerDetectionLimit = 0.5,
+      expressionFamily = negbinomial.size())
+
+
+
+
+
+#Construct monocle cds
+##################################################
+monocle_cds <- newCellDataSet(data,
+                              phenoData = pd,
+                              featureData = fd,
+                              lowerDetectionLimit = 3,
+							  expressionFamily = tobit(Lower = 0.1),#这里说的是PKM生物数据，可能就是小数的数据
+                              expressionFamily = negbinomial.size()
+							  )
+					  
+monocle_cds <- relative2abs(monocle_cds )
+monocle_cds  <- newCellDataSet(as(as.matrix(data),"sparseMatrix"), 
+      phenoData = pd, 
+      featureData = fd,
+      lowerDetectionLimit = 0.5,
+      expressionFamily = negbinomial.size())
+####################################################	  
+	  
+	  
+
+
+
+HSMM<-monocle_cds 
+## 归一化 
+HSMM <- estimateSizeFactors(HSMM)
+HSMM <- estimateDispersions(HSMM)#,fitType="locfit")
+#HSMM <- estimateDispersions(HSMM, fitType = c("parametric","local", "mean"), maxit = 100, quiet = FALSE, modelMatrix = NULL)#报错了，
+
+
+
+
+#过滤细胞Filtering low-quality cells
+HSMM <- detectGenes(HSMM, min_expr = 3 )
+
+#这里应该是选择高变的基因或说是重要的基因
+expressed_genes <- row.names(subset(fData(HSMM),num_cells_expressed >= 10))
+
+print(head(pData(HSMM)))#基因表型
+print(head(fData(HSMM)))#细胞表型
+
+
+#细胞分类（Classifying），这里应该是可以给marker基因进行有监督的聚类
+P2ry12 <- row.names(subset(fData(HSMM), gene_short_name == "P2ry12"))
+Pclaf <- row.names(subset(fData(HSMM),
+                             gene_short_name == "Pclaf"))
+
+cth <- newCellTypeHierarchy()
+cth <- addCellType(cth, "P2ry12", classify_func =
+                     function(x) { x[P2ry12,] >= 1 })
+cth <- addCellType(cth, "Pclaf", classify_func = function(x){ x[Pclaf,] >= 1 })
+
+HSMM <- classifyCells(HSMM, cth, 0.1)
+table(pData(HSMM)$CellType)
+ 
+
+pdf("pie_CellType_Microglia.pdf")
+pie <- ggplot(pData(HSMM),
+              aes(x = factor(1), fill = factor(CellType))) + geom_bar(width = 1)
+pie + coord_polar(theta = "y") +
+  theme(axis.title.x = element_blank(), axis.title.y = element_blank())
+  
+dev.off()
+
+
+#聚类
+#特征选择
+#Clustering cells without marker genes 
+
+disp_table <- dispersionTable(HSMM)
+#expressed_genes <- row.names(subset(fData(HSMM),num_cells_expressed >= 10))
+#unsup_clustering_genes <- subset(subset(fData(HSMM), num_cells_expressed >= 10))
+unsup_clustering_genes <- subset(disp_table, mean_expression >= 0.1)
+HSMM <- setOrderingFilter(HSMM, unsup_clustering_genes$gene_id)
+
+pdf("plot_ordering_genes_CellType_Microglia.pdf")
+plot_ordering_genes(HSMM)
+plot_pc_variance_explained(HSMM, return_all = F) # norm_method='log'
+dev.off()
+
+#降维
+HSMM <- reduceDimension(HSMM, max_components = 2, num_dim = 10,reduction_method = 'tSNE', verbose = T)
+#HSMM <- clusterCells(HSMM, num_clusters = 2)
+HSMM <- clusterCells(HSMM, num_clusters = 4)
+pdf("plot_cell_clusters_CellType_Microglia.pdf",width = 12,height = 6)
+plot_cell_clusters(HSMM, 1, 2)
+plot_cell_clusters(HSMM, 1, 2, color = "CellType",markers = c("P2ry12", "Pclaf", "Tmem119"))
+plot_cell_clusters(HSMM, 1, 2, color = "Cluster",markers = c("P2ry12", "Pclaf", "Tmem119"))
+dev.off()
+
+
+
+#降维（另一中方法）
+HSMM <- reduceDimension(HSMM, max_components = 2, num_dim = 2,
+                        reduction_method = 'tSNE',
+                        residualModelFormulaStr = "~Size_Factor + num_genes_expressed",
+                        verbose = T)
+HSMM <- clusterCells(HSMM, num_clusters = 5)
+pdf("plot_cell_clusters_CellType_Microglia2.pdf",width = 12,height = 6)
+plot_cell_clusters(HSMM, 1, 2)
+plot_cell_clusters(HSMM, 1, 2, color = "CellType",markers = c("P2ry12", "Pclaf", "Tmem119"))
+plot_cell_clusters(HSMM, 1, 2, color = "Cluster",markers = c("P2ry12", "Pclaf", "Tmem119"))+facet_wrap(~CellType)
+dev.off()
+
+
+
+#构建轨迹
+#The ordering workflow
+#Step 1: choosing genes that define progress
+#Step 2: reducing the dimensionality of the data
+#Step 3: ordering the cells in pseudotime
+
+
+diff_test_res <- differentialGeneTest(HSMM[expressed_genes,],
+                                      fullModelFormulaStr = "~percent.mt")#4276个基因
+ordering_genes <- row.names (subset(diff_test_res, qval < 0.1)) #2524个基因
+
+HSMM <- setOrderingFilter(HSMM, ordering_genes)
+pdf("plot_ordering_genes.pdf",width = 9,height = 9)
+plot_ordering_genes(HSMM)
+dev.off()
+
+#降维
+HSMM <- reduceDimension(HSMM, max_components = 2,
+                            method = 'DDRTree')
+							
+##Trajectory step 3: order cells along the trajectory  
+HSMM <- orderCells(HSMM)
+pdf("plot_cell_trajectory_reduceDimension_DDRTree.pdf",width = 9,height = 9)
+plot_cell_trajectory(HSMM, color_by = "sex")
+plot_cell_trajectory(HSMM, color_by = "RNA_snn_res.0.5")
+plot_cell_trajectory(HSMM, color_by = "sample")
+plot_cell_trajectory(HSMM, color_by = "group")
+plot_cell_trajectory(HSMM, color_by = "Cluster")
+plot_cell_trajectory(HSMM, color_by = "State")#这State哪里来的？
+plot_cell_trajectory(HSMM, color_by = "Pseudotime")
+plot_cell_trajectory(HSMM, color_by = "State") +
+    facet_wrap(~State, nrow = 1)
+dev.off()
+
+#还能按不同的组别进行上色
+pdf("plot_cell_trajectory_State_Pseudotime.pdf",width = 9,height = 9)
+plot_cell_trajectory(HSMM, color_by = "State")#这State哪里来的？
+plot_cell_trajectory(HSMM, color_by = "Pseudotime")
+dev.off()
+
+#自定义起始点
+#########################################################
+GM_state <- function(cds){
+  if (length(unique(pData(cds)$State)) > 1){
+    T0_counts <- table(pData(cds)$State, pData(cds)$seurat_clusters)[,"0"]
+    return(as.numeric(names(T0_counts)[which
+                                       (T0_counts == max(T0_counts))]))
+  } else {
+    return (1)
+  }
+}
+HSMM_1 <- orderCells(HSMM, root_state = GM_state(HSMM))#自定义起始点
+pdf("plot_cell_trajectory_State_Pseudotime.pdf",width = 9,height = 9)
+plot_cell_trajectory(HSMM_1, color_by = "Pseudotime")
+
+#分面展示
+plot_cell_trajectory(HSMM, color_by = "State") +
+    facet_wrap(~State, nrow = 1)
+dev.off()	
+##############################################################	
+#根据已知基因确定起始点	
+blast_genes <- row.names(subset(fData(HSMM),
+                                gene_short_name %in% c("P2ry12", "Pclaf", "Tmem119")))
+pdf("plot_genes_jitter.pdf",width = 9,height = 9)
+plot_genes_jitter(HSMM[blast_genes,],
+                  grouping = "RNA_snn_res.0.5",
+                  min_expr = 0.1)
+
+dev.off()	
+			  
+#另外一种展示方法				  
+HSMM_expressed_genes <-  row.names(subset(fData(HSMM),
+                                          num_cells_expressed >= 10))
+HSMM_filtered <- HSMM[HSMM_expressed_genes,]
+my_genes <- row.names(subset(fData(HSMM_filtered),
+                             gene_short_name %in% c("P2ry12", "Pclaf", "Tmem119")))
+cds_subset <- HSMM_filtered[my_genes,]
+pdf("plot_genes_in_pseudotime.pdf",width = 9,height = 9)
+plot_genes_in_pseudotime(cds_subset, color_by = "RNA_snn_res.0.5")
+plot_genes_in_pseudotime(cds_subset, color_by = "Pseudotime")
+dev.off()
+
+
+#差异分析
+marker_genes <- row.names(subset(fData(HSMM),
+                                 gene_short_name %in% c("P2ry12", "Pclaf", "Tmem119")))
+diff_test_res <- differentialGeneTest(HSMM[marker_genes,],
+                                      fullModelFormulaStr = "~percent.mt")
+MYOG_ID1 <- HSMM[row.names(subset(fData(HSMM),
+                                      gene_short_name %in% c("P2ry12", "Pclaf", "Tmem119"))),]									  
+pdf("plot_genes_jitter.pdf")									  
+plot_genes_jitter(MYOG_ID1, grouping = "seurat_clusters", ncol= 3)
+plot_genes_jitter(MYOG_ID1, grouping = "Pseudotime", ncol= 3)
+dev.off()
+
+#选择对区分细胞类型有意义的基因Finding Genes that Distinguish Cell Type or State 
+to_be_tested <- row.names(subset(fData(HSMM),
+                                 gene_short_name %in% c("P2ry12", "Pclaf", "Tmem119")))
+cds_subset <- HSMM[to_be_tested,]
+
+
+diff_test_res <- differentialGeneTest(cds_subset,
+                                      fullModelFormulaStr = "~CellType")
+diff_test_res[,c("gene_short_name", "pval", "qval")]
+pdf("plot_genes_jitter.pdf",width=15,height=7)									  
+plot_genes_jitter(MYOG_ID1, grouping = "seurat_clusters", ncol= 3)
+plot_genes_jitter(cds_subset,
+                  grouping = "CellType",
+                  color_by = "CellType",
+                  nrow= 1,
+                  ncol = NULL,
+                  plot_trend = TRUE)
+dev.off()
+
+
+full_model_fits <-fitModel(cds_subset,  modelFormulaStr = "~CellType")
+reduced_model_fits <- fitModel(cds_subset, modelFormulaStr = "~1")
+diff_test_res <- compareModels(full_model_fits, reduced_model_fits)
+diff_test_res
+
+
+to_be_tested <- row.names(subset(fData(HSMM),gene_short_name %in% c("P2ry12","Tmem119")))
+cds_subset <- HSMM[to_be_tested,]
+diff_test_res <- differentialGeneTest(cds_subset,fullModelFormulaStr = "~sm.ns(Pseudotime)")#报错了
+diff_test_res[,c("gene_short_name", "pval", "qval")]
+pdf("plot_genes_jitter.pdf",width=15,height=7)#看看不同阶段的基因表达情况	
+plot_genes_in_pseudotime(cds_subset, color_by = "seurat_clusters")
+plot_genes_in_pseudotime(cds_subset, color_by = "Pseudotime")
+dev.off()
+
+
+#绘制拟时序的热图
+diff_test_res <- differentialGeneTest(HSMM[marker_genes,],
+                                      fullModelFormulaStr = "~sm.ns(Pseudotime)")
+sig_gene_names <- row.names(subset(diff_test_res, qval < 0.1))
+
+pdf("plot_pseudotime_heatmap.pdf",width=15,height=7)	
+plot_pseudotime_heatmap(HSMM[sig_gene_names,],
+                        num_clusters = 6,
+                        cores = 1,
+                        show_rownames = T)
+dev.off()
+						
+						
+
+#						
+to_be_tested <-row.names(subset(fData(HSMM),gene_short_name %in% c("P2ry12","Tmem119")))
+cds_subset <- HSMM[to_be_tested,]
+diff_test_res <- differentialGeneTest(cds_subset,
+                                      fullModelFormulaStr = "~CellType + percent.mt",
+                                      reducedModelFormulaStr = "~percent.mt")
+diff_test_res[,c("gene_short_name", "pval", "qval")]
+pdf("plot_genes_jitter123.pdf",width=15,height=7)
+plot_genes_jitter(cds_subset,
+                  grouping = "seurat_clusters", color_by = "CellType", plot_trend = TRUE) +
+  facet_wrap( ~ feature_label, scales= "free_y")
+dev.off()
+
+
+
+#感觉是画top的基因热图，和拟时序相关的基因
+BEAM_res <- BEAM(HSMM, branch_point = 1, cores = 8)
+BEAM_res <- BEAM_res[order(BEAM_res$qval),]
+BEAM_res <- BEAM_res[,c("gene_short_name", "pval", "qval")]
+pdf("plot_pseudotime_heatmap123.pdf",width=15,height=7)	
+plot_genes_branched_heatmap(HSMM[row.names(subset(BEAM_res,
+                                                  qval < 1e-4)),],
+                            branch_point = 1,
+                            num_clusters = 4,
+                            cores = 1,
+                            use_gene_short_name = T,
+                            show_rownames = T)
+dev.off()
+
+
+pdf("plot_pseudotime_heatmap1234.pdf",width=9,height=15)	
+plot_genes_branched_heatmap(HSMM[row.names(subset(BEAM_res,
+                                                  qval < 1e-15)),],
+                            branch_point = 1,
+                            num_clusters = 4,
+                            cores = 1,
+                            use_gene_short_name = T,
+                            show_rownames = T)
+dev.off()
+
+dim(HSMM[row.names(subset(BEAM_res,qval < 1e-10)),])
+
+
+
+genes <- row.names(subset(fData(HSMM),
+                          gene_short_name %in% c( "P2ry12","Tmem119")))
+pdf("plot_genes_branched_pseudotime.pdf",width=15,height=7)	
+plot_genes_branched_pseudotime(HSMM[genes,],
+                               branch_point = 1,
+                               color_by = "State",
+                               ncol = 1)
+dev.off()
+
+
+

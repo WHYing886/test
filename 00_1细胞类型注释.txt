@@ -1,0 +1,451 @@
+rm(list=ls())
+library(Seurat)
+library(harmony)
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(cowplot)
+library(future)
+library(RColorBrewer)
+#library(ggpubr)
+library(ComplexHeatmap)
+library(reshape2)
+library(clustree)
+set.seed(123)
+setwd("/jdfssz3/ST_STOMICS/P20Z10200N0059_tmp/wenhuiying/13.zdwf/02.RNAdata")
+RNA <- readRDS("/jdfssz3/ST_STOMICS/P20Z10200N0059_tmp/wenhuiying/13.zdwf/02.RNAdata/rds/spinalcord_harmony.rds")
+
+
+
+Idents(object = RNA) <- "RNA_snn_res.1"
+levels(RNA)#有31群
+#data<-read.csv("/hwfssz5/ST_SUPERCELLS/P20Z10200N0059/wenhuiying/06.ALS/01.anno/table/celltype.csv")
+#最新的数据res=1
+data<-read.csv("/hwfssz5/ST_SUPERCELLS/P20Z10200N0059/wenhuiying/06.ALS/01.anno/table/celltype.csv")
+res1<-data$celltype1
+names(res1) <- c(0:30)
+RNA <- RenameIdents(RNA, res1)
+RNA@meta.data$celltype1<-Idents(RNA)
+
+
+
+Idents(object = RNA) <- "RNA_snn_res.1"
+res1<-data$Annotation1
+names(res1) <- c(0:30)
+RNA <- RenameIdents(RNA, res1)
+RNA@meta.data$Annotation1<-Idents(RNA)
+
+
+
+
+##########################不要这一步了############
+Idents(object = RNA) <- "RNA_snn_res.0.6"
+levels(RNA)#有31群
+res0.6<-data$celltype0.6
+names(res0.6) <- c(0:25)
+RNA <- RenameIdents(RNA, res0.6)
+RNA@meta.data$celltype0.6<-Idents(RNA)
+
+Idents(object = RNA) <- "RNA_snn_res.0.6"
+res0.6<-data$Annotation0.6
+names(res0.6) <- c(0:25)
+RNA <- RenameIdents(RNA, res0.6)
+RNA@meta.data$Annotation0.6<-Idents(RNA)
+#######################################
+
+#ggtitle("RNA_snn_res.")
+pdf("celltype_DimPlot.pdf",width = 15,height = 10)
+DimPlot(RNA, reduction = "umap", label = T,label.size = 5,group.by = 'Annotation1',raster=FALSE)
+DimPlot(RNA, reduction = "umap", label = T,label.size = 5,group.by = 'celltype1',raster=FALSE)
+dev.off()
+DimPlot(RNA, reduction = "umap", label = T,label.size = 5,group.by = 'Annotation0.6',raster=FALSE)
+DimPlot(RNA, reduction = "umap", label = T,label.size = 5,group.by = 'celltype0.6',raster=FALSE)
+dev.off()
+
+
+
+pdf("cellytpe_proportion_sample.pdf",height=4,width=15)
+#画一下细胞类型的比例
+
+statistics1 <- as.data.frame(table(RNA$sample,RNA$Annotation1))
+colnames(statistics1) <- c("sample","celltype","cellnum")
+cellname <- unique(statistics1[order(statistics1$cellnum),]$celltype)
+
+ggplot(data = statistics1, mapping = aes(x = sample, y = cellnum,
+  fill = factor(celltype,levels=(cellname)))) +
+  geom_bar(stat= 'identity', position = 'fill')+
+  coord_flip()+theme_classic()+labs(y="Cell proportion")+
+  scale_fill_manual("celltype",values=colors)
+
+
+
+statistics1 <- as.data.frame(table(RNA$sample,RNA$celltype1))
+colnames(statistics1) <- c("sample","celltype","cellnum")
+cellname <- unique(statistics1[order(statistics1$cellnum),]$celltype)
+
+ggplot(data = statistics1, mapping = aes(x = sample, y = cellnum,
+  fill = factor(celltype,levels=(cellname)))) +
+  geom_bar(stat= 'identity', position = 'fill')+
+  coord_flip()+theme_classic()+labs(y="Cell proportion")+
+  scale_fill_manual("celltype",values=colors)
+
+dev.off()
+
+pdf("cellytpe_proportion_orig.ident.pdf",height=10,width=30)
+#画一下细胞类型的比例
+
+statistics1 <- as.data.frame(table(RNA$orig.ident,RNA$Annotation1))
+colnames(statistics1) <- c("sample","celltype","cellnum")
+cellname <- unique(statistics1[order(statistics1$cellnum),]$celltype)
+
+ggplot(data = statistics1, mapping = aes(x = sample, y = cellnum,
+  fill = factor(celltype,levels=(cellname)))) +
+  geom_bar(stat= 'identity', position = 'fill')+
+  coord_flip()+theme_classic()+labs(y="Cell proportion")+
+  scale_fill_manual("celltype",values=colors)
+
+
+
+statistics1 <- as.data.frame(table(RNA$orig.ident,RNA$celltype1))
+colnames(statistics1) <- c("sample","celltype","cellnum")
+cellname <- unique(statistics1[order(statistics1$cellnum),]$celltype)
+
+ggplot(data = statistics1, mapping = aes(x = sample, y = cellnum,
+  fill = factor(celltype,levels=(cellname)))) +
+  geom_bar(stat= 'identity', position = 'fill')+
+  coord_flip()+theme_classic()+labs(y="Cell proportion")+
+  scale_fill_manual("celltype",values=colors)
+
+dev.off()
+
+
+
+
+setwd("/hwfssz5/ST_SUPERCELLS/P20Z10200N0059/wenhuiying/06.ALS/01.anno/plot")
+#有部分细胞类型分不出来
+
+
+RNA <- RunUMAP(RNA, reduction = "pca", dims = 1:30)
+pdf(paste0(projname,'_before_DimPlot.pdf'),width = 15,height = 10)
+DimPlot(RNA, reduction = "umap", label = T,label.size = 5)
+dev.off()
+
+RNA<- FindClusters(RNA, verbose = F,resolution = 0.1)
+
+
+Idents(RNA)<-"RNA_snn_res.0.05"
+RNA<-RunTSNE(RNA,reduction = "pca", dims = 1:30)
+
+
+
+Idents(RNA)<-"RNA_snn_res.1"
+Idents(RNA)<-"Annotation1"
+pdf("TSNEPlot_umap_Annotation1.pdf",width = 15,height = 10)
+DimPlot(RNA, reduction = "umap",label = T,label.size = 5)
+DimPlot(RNA, reduction = "tsne",label = T,label.size = 5)
+TSNEPlot(RNA, reduction = "tsne",label = T,label.size = 5)
+plot1<-DimPlot(pbmc, reduction = "umap",label = TRUE)+scale_color_npg()
+plot2<-DimPlot(pbmc, reduction = "tsne",label = TRUE)+scale_color_npg()
+CombinePlots(plots = list(plot1, plot2),legend="bottom")
+dev.off()
+
+#seurat自带的聚类树结构
+RNA$sample_batch<-paste0(RNA$sample,"_",RNA$batch)
+
+pdf("BuildClusterTree_sample_subset500.pdf",width = 15,height = 10)
+Idents(RNA)<-"sample_batch"
+RNA<-BuildClusterTree(RNA)
+Tool(object = RNA, slot = 'BuildClusterTree')
+PlotClusterTree(RNA)
+Idents(RNA)<-"sample"
+RNA<-BuildClusterTree(RNA)
+Tool(object = RNA, slot = 'BuildClusterTree')
+PlotClusterTree(RNA)
+Idents(RNA)<-"orig.ident"
+RNA<-BuildClusterTree(RNA)
+Tool(object = RNA, slot = 'BuildClusterTree')
+PlotClusterTree(RNA)
+
+dev.off()
+
+#识别低质量样本。
+RNA<-CalculateBarcodeInflections(RNA)
+SubsetByBarcodeInflections(RNA)
+
+BuildClusterTree(RNA,reduction = "pca",reorder = T,reorder.numeric = T,verbose = TRUE)
+BuildClusterTree(RNA,reduction = "umap",reorder = T,reorder.numeric = T,verbose = TRUE)
+BuildClusterTree(RNA,reduction = "tsne",reorder = T,reorder.numeric = T,verbose = TRUE)
+clustree(RNA@meta.data[,c("RNA_snn_res.0.02","RNA_snn_res.0.6","RNA_snn_res.1","RNA_snn_res.1.6")], prefix = "RNA_snn_res.")
+dev.off()
+
+
+#RNA_snn_res.1.2
+pdf("celltype_DimPlot.pdf",width = 15,height = 10)
+DimPlot(RNA, reduction = "umap", label = T,label.size = 5,group.by = "RNA_snn_res.0.05",raster=FALSE)
+DimPlot(RNA, reduction = "umap", label = T,label.size = 5,group.by = "RNA_snn_res.0.6",raster=FALSE)
+DimPlot(RNA, reduction = "umap", label = T,label.size = 5,group.by = "RNA_snn_res.1",raster=FALSE)
+DimPlot(RNA, reduction = "umap", label = T,label.size = 5,group.by = "RNA_snn_res.1.6",raster=FALSE)
+dev.off()
+DimPlot(RNA, reduction = "umap", label = T,label.size = 5,group.by = 'Annotation1',raster=FALSE)
+DimPlot(RNA, reduction = "umap", label = T,label.size = 5,group.by = 'celltype1',raster=FALSE)
+DimPlot(RNA, reduction = "umap", label = T,label.size = 5,group.by = 'Annotation0.6',raster=FALSE)
+DimPlot(RNA, reduction = "umap", label = T,label.size = 5,group.by = 'celltype0.6',raster=FALSE)
+dev.off()
+
+
+
+
+
+#画聚类数确定几个选择的分辨率
+pdf("clustree_spinalcord_FindNeighbors_harmony.pdf",width = 15,height = 9)
+clustree(RNA@meta.data[,c("RNA_snn_res.0.02","RNA_snn_res.0.6","RNA_snn_res.1","RNA_snn_res.1.6")], prefix = "RNA_snn_res.")
+dev.off()
+
+
+
+
+
+#画聚类树和相关性
+
+
+gene<-VariableFeatures(pancreas)
+pancreas_res0.6=AverageExpression(pancreas,features = gene,group.by = "RNA_snn_res.0.6")
+df1<-pancreas_res0.6$RNA
+pancreas_celltype1<-AverageExpression(pancreas,features =gene,group.by = "celltype1")
+df2<-pancreas_celltype1$RNA
+#求相关性
+#cor(df1,df2,method = 'spearman')
+cor(df1,df2,method = 'spearman')
+pdf('pancreas_cor_pheatmap_VariableFeatures(pancreas).pdf',width = 15,height = 10)
+pheatmap::pheatmap(cor(df1,df2,method = 'spearman'), 
+                   cluster_rows =TRUE, cluster_cols = TRUE,
+                   main = "pancreas_cor_pheatmap", display_numbers = TRUE) 
+dev.off()
+
+
+markers_gene<-c("SOD1","Sod1")
+Cho<-c("Slc5a7"," Chat")
+Ex<-c("Slc17a8","Slc17a6")
+In<-c("Gad1","Gad2 ","Slc6a5 ")
+Oli<-c("Mbp","Mobp") 
+Ast<-c("Gfap", "Aqp4")
+Mic<-c("Cx3cr1" ,"Trem2" ,"P2ry12")
+Opc<-c("Pdgfra")
+Endo<-c("Cldn5")
+#main_markers_gene <- c(Cho,Ex,In,Oli,Ast,Mic,Endo,Endo,Opc,markers_gene)
+main_markers_gene <- c(Ex,In)
+pdf("Dim_Ex_In_FeaturePlot_marker.pdf")
+#DimPlot(RNA,reduction = "umap",label=T, group.by ='celltype1')
+try(FeaturePlot(RNA,features = main_markers_gene,combine = F,cols = c("grey","red")))
+dev.off()
+#基因表达图
+DefaultAssay(object = RNA) <- "RNA"
+q<-FeaturePlot(RNA,features = main_markers_gene,combine = F,cols = c("grey","red"))
+try(for(i in 1:length(main_markers_gene)){
+  q[[i]]<-q[[i]]+xlab("")+ylab("")+NoLegend()
+})
+pdf("FeaturePlot_marker.pdf", onefile = TRUE,width = 12,height = 9)
+m<-1
+for(i in 1:(floor(length(main_markers_gene)/9)+1)){
+  p<-plot_grid(plotlist=q[m:(i*9)])
+  m<-i*9+1
+  print(p)
+}
+dev.off()
+
+
+
+
+
+
+
+
+
+
+
+
+##########2023年2月21号再次注释细胞类型##########
+#挑选出神经元的群
+
+Sensory neuron
+Robo1+ neuron
+Il1rapl2+ Neuron
+Inhibitory neuron
+Excitatory neuron
+Motor neuron
+OPC
+Oligodendrocyte
+Schwann cell
+Microglia
+Astrocyte
+Fibroblast
+Pericyte
+Endothelia
+
+
+
+
+neuron<-c("Sensory neuron","Robo1+ neuron","Il1rapl2+ Neuron","Inhibitory neuron","Excitatory neuron","Motor neuron")
+RNA<-subset(RNA,subset=Annotation1 %in% neuron)
+
+
+Idents(RNA)<-"celltype1"
+
+Idents(RNA)<-"Annotation1"
+library(Seurat)
+library(UCell)
+library(Seurat)
+library(ggplot2)
+library(patchwork)
+library(dplyr)
+library(cowplot)
+library(ggpubr)
+set.seed(123)
+
+
+data<-read.csv("/hwfssz5/ST_SUPERCELLS/P20Z10200N0059/wenhuiying/06.ALS/01.anno/EX_INH_marker.csv")
+signature.names<-data$EX_INH
+signature.names<-intersect(signature.names,rownames(RNA@assays$RNA@counts))
+q<-VlnPlot(RNA1, features =signature.names, group.by = "Annotation1", pt.size = 0, combine = FALSE)
+for(i in 1:length(signature.names)){
+  q[[i]]<-q[[i]]+theme(axis.text.x = element_text(size = 12))+xlab("")+ylab("")+NoLegend()#+stat_compare_means(method='t.test', label='p.signif',hide.ns = TRUE)
+}
+pdf("EX_INH_marker_VlnPlot_Annotation1_pt.size0.pdf", onefile = TRUE,width = 9,height = 9)
+m<-1
+for(i in 1:(floor(length(signature.names)/9)+1)){
+  p<-plot_grid(plotlist=q[m:(i*9)])
+  m<-i*9+1
+  print(p)
+}
+dev.off()
+
+
+
+#减掉多余的列
+c <- grep("pANN_",colnames(scRNAlist[[i]]@meta.data))
+  scRNAlist[[i]]@meta.data <- scRNAlist[[i]]@meta.data[,-c]
+  
+  
+#看一下过滤后的细胞数
+
+RNA<- subset(RNA, subset = nFeature_RNA > 500 & nFeature_RNA < 8000 & percent.mt < 10)
+  
+  
+  
+pdf("cellytpe_proportion_sample_subset500.pdf",height=4,width=15)
+#画一下细胞类型的比例
+
+statistics1 <- as.data.frame(table(RNA$sample,RNA$Annotation1))
+colnames(statistics1) <- c("sample","celltype","cellnum")
+cellname <- unique(statistics1[order(statistics1$cellnum),]$celltype)
+
+ggplot(data = statistics1, mapping = aes(x = sample, y = cellnum,
+  fill = factor(celltype,levels=(cellname)))) +
+  geom_bar(stat= 'identity', position = 'fill')+
+  coord_flip()+theme_classic()+labs(y="Cell proportion")+
+  scale_fill_manual("celltype",values=colors)
+
+
+
+statistics1 <- as.data.frame(table(RNA$sample,RNA$celltype1))
+colnames(statistics1) <- c("sample","celltype","cellnum")
+cellname <- unique(statistics1[order(statistics1$cellnum),]$celltype)
+
+ggplot(data = statistics1, mapping = aes(x = sample, y = cellnum,
+  fill = factor(celltype,levels=(cellname)))) +
+  geom_bar(stat= 'identity', position = 'fill')+
+  coord_flip()+theme_classic()+labs(y="Cell proportion")+
+  scale_fill_manual("celltype",values=colors)
+
+dev.off()
+
+pdf("cellytpe_proportion_orig.ident_subset500.pdf",height=10,width=30)
+#画一下细胞类型的比例
+statistics1 <- as.data.frame(table(RNA$orig.ident,RNA$Annotation1))
+colnames(statistics1) <- c("sample","celltype","cellnum")
+cellname <- unique(statistics1[order(statistics1$cellnum),]$celltype)
+
+ggplot(data = statistics1, mapping = aes(x = sample, y = cellnum,
+  fill = factor(celltype,levels=(cellname)))) +
+  geom_bar(stat= 'identity', position = 'fill')+
+  coord_flip()+theme_classic()+labs(y="Cell proportion")+
+  scale_fill_manual("celltype",values=colors)
+
+
+
+statistics1 <- as.data.frame(table(RNA$orig.ident,RNA$celltype1))
+colnames(statistics1) <- c("sample","celltype","cellnum")
+cellname <- unique(statistics1[order(statistics1$cellnum),]$celltype)
+
+ggplot(data = statistics1, mapping = aes(x = sample, y = cellnum,
+  fill = factor(celltype,levels=(cellname)))) +
+  geom_bar(stat= 'identity', position = 'fill')+
+  coord_flip()+theme_classic()+labs(y="Cell proportion")+
+  scale_fill_manual("celltype",values=colors)
+
+dev.off()
+
+
+
+theme.set1 = theme(axis.text.x = element_text(size = 10),axis.title.x=element_blank())
+pdf("VlnPlot_after_qc.pdf",width = 10,height = 8)
+VlnPlot(RNA,features = c("nFeature_RNA"),group.by="orig.ident",pt.size=0) + theme.set1 + NoLegend()
+VlnPlot(RNA,features = c("nCount_RNA"),group.by="orig.ident",pt.size=0) + theme.set1 + NoLegend()
+VlnPlot(RNA,features = c("percent.mt"),group.by="orig.ident",pt.size=0) + theme.set1 + NoLegend()
+VlnPlot(RNA,features = c("nFeature_RNA"),group.by="sample",pt.size=0) + theme.set1 + NoLegend()
+VlnPlot(RNA,features = c("nCount_RNA"),group.by="sample",pt.size=0) + theme.set1 + NoLegend()
+VlnPlot(RNA,features = c("percent.mt"),group.by="sample",pt.size=0) + theme.set1 + NoLegend()
+dev.off()
+
+
+
+
+
+#细胞类型注释
+markers=read.table(text='Excitatory neuron	Syt1
+Excitatory neuron	Syp
+Excitatory neuron	Slc17a6
+Excitatory neuron	Cck
+Inhibitory neuron	Penk
+Inhibitory neuron	Slc32a1
+Inhibitory neuron	Lamp5
+Inhibitory neuron	Npy
+Motor neuron	Chat
+Motor neuron	Slc5a7
+Oligodendrocyte	Mog
+Oligodendrocyte	Mag
+Oligodendrocyte	Plp1
+Oligodendrocyte	Cldn11
+OPC	Cspg4
+OPC	Tnr
+OPC	Gpr17
+OPC	Pdgfra
+OPC	Olig2
+Microglia	Cx3cr1
+Microglia	Ctss
+Microglia	Hexb
+Microglia	Tmem119
+Astrocyte	Aqp4
+Astrocyte	Gja1
+Astrocyte	Fgfr3
+Endothelia	Flt1
+Endothelia	Cldn5
+Endothelia	Pecam1
+Fibroblast	Islr
+Fibroblast	Igfbp6
+Pericyte	Vtn
+Pericyte	Abcc9
+Schwann cell	Mpz
+Schwann cell	Prx
+Schwann cell	Ncmap',sep='\t')#,row.names=1)
+
+
+
+
+Idents(RNA)<-"Annotation1"
+levels(RNA)<-rev(unique(markers$V1))
+gene<-markers$V2
+pdf("plot/spinalcord_cellmarker_Dotplot2.pdf",width = 13,height = 6)
+DotPlot(RNA, features = unique(gene))+RotatedAxis()+
+  scale_x_discrete("")+scale_y_discrete("")
+dev.off()
